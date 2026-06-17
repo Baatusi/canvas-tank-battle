@@ -136,7 +136,7 @@ canvas{border:2px solid #8c7b54;display:block;width:100%;height:auto;aspect-rati
 <p><span class="key">空格</span> 开火 · <span class="key">F</span> 自动开火 · <span class="key">P</span> 暂停</p>
 <p><span class="key">E</span> 时缓：除自己移动外，其他速度减半 4 秒（每局 2 次）</p>
 <p><span class="key">Q</span> 无敌：2 秒内免疫伤害（每局 1 次）</p>
-<p style="margin-top:8px">保护 10 点耐久基地 🦅 · 消灭全部敌坦！</p>
+<p style="margin-top:8px">普通关保护 10 点耐久基地 🦅 · 无尽关 10 条命刷分！</p>
 <h2 style="margin-top:16px">选择关卡</h2>
 <div class="levels" id="levelSelect"></div>
 <button class="btn" id="btnStart">开始游戏</button>
@@ -204,6 +204,7 @@ var SKILL_USES = 2, SKILL_DURATION = 4000, SKILL_SLOW = 0.5;
 var INV_SKILL_USES = 1, INV_SKILL_DURATION = 120, BASE_HP_MAX = 10;
 var DIR_MEMORY_MS = 68;
 var TOTAL_ENEMIES = 20, MAX_ON_SCREEN = 4;
+var ENDLESS_LIVES = 10, ENDLESS_MAX_ON_SCREEN = 6;
 var DIR = [{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0},{x:-0.7071,y:-0.7071},{x:0.7071,y:-0.7071},{x:0.7071,y:0.7071},{x:-0.7071,y:0.7071}];
 var FISH_DIRS = [4,5,6,7];
 // 8方向旋转角度: up, right, down, left, up-left, up-right, down-right, down-left
@@ -376,6 +377,22 @@ var LEVELS = [
 [0,0,0,0,0,0,0,0,0,0,0,0,0],
 [0,0,0,0,0,0,0,0,0,0,0,0,0],
 [0,0,0,0,0,0,0,0,0,0,0,0,0]
+]},
+// 无尽 - 刷分关，无基地，持续刷新敌军
+{name:'无尽',endless:true,noBase:true,maxOnScreen:ENDLESS_MAX_ON_SCREEN,map:[
+[0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,1,0,0,2,0,2,0,0,1,0,0],
+[0,1,0,0,4,0,0,0,4,0,0,1,0],
+[0,0,0,3,3,0,2,0,3,3,0,0,0],
+[0,4,0,3,0,0,0,0,0,3,0,4,0],
+[0,0,1,0,0,1,0,1,0,0,1,0,0],
+[0,2,0,0,1,0,4,0,1,0,0,2,0],
+[0,0,1,0,0,1,0,1,0,0,1,0,0],
+[0,4,0,3,0,0,0,0,0,3,0,4,0],
+[0,0,0,3,3,0,2,0,3,3,0,0,0],
+[0,1,0,0,4,0,0,0,4,0,0,1,0],
+[0,0,1,0,0,2,0,2,0,0,1,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0]
 ]}
 ];
 
@@ -413,6 +430,16 @@ var elTouchFire=document.getElementById('btnTouchFire');
 // === 工具函数 ===
 function copyMap(src){ return src.map(function(r){ return r.slice(); }); }
 function clamp(v,min,max){ return Math.max(min,Math.min(max,v)); }
+function levelConfig(){ return LEVELS[currentLevel] || LEVELS[0]; }
+function isEndlessLevel(){ return !!levelConfig().endless; }
+function levelHasBase(){ return !levelConfig().noBase; }
+function levelEnemyLimit(){ return isEndlessLevel() ? Infinity : TOTAL_ENEMIES; }
+function levelMaxOnScreen(){ return levelConfig().maxOnScreen || MAX_ON_SCREEN; }
+function aliveEnemyCount(){
+  var c=0;
+  for(var i=0;i<enemies.length;i++) if(enemies[i].alive) c++;
+  return c;
+}
 function roundRect(x,y,w,h,r){
   r=Math.min(r,w/2,h/2);
   ctx.beginPath();
@@ -525,11 +552,11 @@ function updateActionButtons(){
   elTouchFire.disabled=!running || paused || !player.alive || sweepMode;
   elSkillSlow.disabled=!running || paused || skillUses<=0 || now<skillSlowUntil;
   elSkillInv.disabled=!running || paused || !player.alive || invSkillUses<=0 || invincible>0 || sweepMode;
-  elSweep.disabled=!running || paused || !player.alive || sweepMode;
+  elSweep.disabled=!running || paused || !player.alive || sweepMode || isEndlessLevel();
   elRestartLevel.disabled=!running && elOver.style.display!=='flex';
 }
 function activateSweepMode(){
-  if(!running || paused || !player.alive || sweepMode) return;
+  if(!running || paused || !player.alive || sweepMode || isEndlessLevel()) return;
   sweepMode=true;
   fishMode=false;
   autoFire=false;
@@ -543,8 +570,10 @@ function activateSweepMode(){
   player.alive=true;
   invincible=999999;
   invSkillTicks=0;
-  baseAlive=true;
-  baseHp=BASE_HP_MAX;
+  if(levelHasBase()){
+    baseAlive=true;
+    baseHp=BASE_HP_MAX;
+  }
   updateAutoFireButton();
   updateFishButton();
   updateSweepButton();
@@ -581,7 +610,7 @@ function renderLevelSelect(){
   for(var i=0;i<LEVELS.length;i++){
     var btn=document.createElement('button');
     btn.className='level-btn'+(i===selectedLevel?' active':'');
-    btn.textContent=i+1;
+    btn.textContent=LEVELS[i].endless?'无尽':i+1;
     btn.disabled=i>unlockedLevel;
     btn.setAttribute('data-level',i);
     btn.title=btn.disabled?'通关前一关后解锁':LEVELS[i].name;
@@ -659,6 +688,7 @@ function destroyBase(){
       if(map[r][c]===BASE) map[r][c]=EMPTY;
 }
 function damageBase(){
+  if(!levelHasBase()) return;
   if(!baseAlive) return;
   if(sweepMode){
     baseHp=BASE_HP_MAX;
@@ -685,10 +715,9 @@ function respawnPlayer(){
 
 // === 敌人 ===
 function spawnEnemy(){
-  if(enemiesSpawned>=TOTAL_ENEMIES) return;
-  var alive=0;
-  for(var i=0;i<enemies.length;i++) if(enemies[i].alive) alive++;
-  if(alive>=MAX_ON_SCREEN) return;
+  if(enemiesSpawned>=levelEnemyLimit()) return;
+  var alive=aliveEnemyCount();
+  if(alive>=levelMaxOnScreen()) return;
 
   var spawns=[
     {x:1*TILE+TILE/2, y:TILE/2},
@@ -722,9 +751,12 @@ function spawnEnemy(){
 function enemyAI(e,now){
   if(now>e.nextTurn){
     var dx=0, dy=0;
-    if(e.type==='seeker'){
+    if(e.type==='seeker' && levelHasBase()){
       dx=(BASE_X+1)*TILE-e.x;
       dy=(BASE_Y+1)*TILE-e.y;
+    }else if(e.type==='seeker' && player.alive){
+      dx=player.x-e.x;
+      dy=player.y-e.y;
     }else if(Math.random()<0.3 && player.alive){
       dx=player.x-e.x; dy=player.y-e.y;
     }
@@ -767,8 +799,10 @@ function update(){
   if(sweepMode){
     invincible=999999;
     invSkillTicks=0;
-    baseAlive=true;
-    baseHp=BASE_HP_MAX;
+    if(levelHasBase()){
+      baseAlive=true;
+      baseHp=BASE_HP_MAX;
+    }
   }else if(invincible>0) invincible--;
   if(invSkillTicks>0) invSkillTicks--;
   if(slowFx>0) slowFx--;
@@ -910,12 +944,13 @@ function update(){
         var e=enemies[j];
         if(!e.alive)continue;
         if(rectHit(b,e)){
-          e.alive=false; score+=100; enemiesLeft--;
+          e.alive=false; score+=100;
+          if(!isEndlessLevel()) enemiesLeft--;
           triggerKillFx(e.x,e.y);
           makeParticles(e.x,e.y,'#ff8800',20);
           if(!b.piercing) bullets.splice(i,1);
           updateHUD();
-          if(enemiesLeft<=0){levelClear();return;}
+          if(!isEndlessLevel() && enemiesLeft<=0){levelClear();return;}
           break;
         }
       }
@@ -960,13 +995,12 @@ function update(){
   }
 
   // 敌人生成
-  if(enemiesSpawned<TOTAL_ENEMIES){
+  if(enemiesSpawned<levelEnemyLimit()){
     spawnCD+=slowFactor(now);
-    var aCount=0;
-    for(var i=0;i<enemies.length;i++) if(enemies[i].alive) aCount++;
-    var th=aCount<2?30:aCount<3?45:65;
+    var aCount=aliveEnemyCount();
+    var th=isEndlessLevel() ? (aCount<2?24:aCount<4?38:55) : (aCount<2?30:aCount<3?45:65);
     if(spawnCD>th){spawnEnemy();spawnCD=0;}
-    if(aCount===0 && enemiesSpawned<TOTAL_ENEMIES && spawnCD>20){spawnEnemy();spawnCD=0;}
+    if(aCount===0 && enemiesSpawned<levelEnemyLimit() && spawnCD>20){spawnEnemy();spawnCD=0;}
   }
 
   // 清除死敌
@@ -1016,9 +1050,9 @@ function gameOver(title){
 function updateHUD(){
   elScore.textContent=score;
   elLives.textContent=lives;
-  elEnemies.textContent=enemiesLeft;
+  elEnemies.textContent=isEndlessLevel() ? aliveEnemyCount()+'/'+levelMaxOnScreen() : enemiesLeft;
   elLevel.textContent=LEVELS[currentLevel].name;
-  elBaseHp.textContent=baseHp;
+  elBaseHp.textContent=levelHasBase()?baseHp:'无';
   if(Date.now()<skillSlowUntil){
     elSkill.textContent=skillUses+' / '+Math.ceil((skillSlowUntil-Date.now())/1000)+'s';
   }else{
@@ -1097,6 +1131,7 @@ function drawTile(x,y,t){
 
 // 绘制 2×2 大鹰基地（位置由 BASE_X, BASE_Y 定义）
 function drawBase(){
+  if(!levelHasBase()) return;
   var stillAlive=false;
   for(var r=BASE_Y;r<BASE_Y+2;r++)for(var c=BASE_X;c<BASE_X+2;c++)
     if(map[r][c]===BASE) stillAlive=true;
@@ -1284,27 +1319,29 @@ function gameLoop(){
 
 // === 初始化 ===
 function resetRunStats(){
-  score=0;lives=3;skillUses=SKILL_USES;invSkillUses=INV_SKILL_USES;
+  score=0;lives=isEndlessLevel()?ENDLESS_LIVES:3;skillUses=SKILL_USES;invSkillUses=INV_SKILL_USES;
 }
 
 function initGame(resetStats){
   map=copyMap(LEVELS[currentLevel].map);
-  // 放置 2×2 基地
-  for(var r=BASE_Y;r<BASE_Y+2;r++)
-    for(var c=BASE_X;c<BASE_X+2;c++)
-      map[r][c]=BASE;
-  // U 型保护墙：顶部一排 + 左右两侧到底
-  // 只覆盖空地，不破坏已有地形
-  for(var c=BASE_X-1;c<=BASE_X+2;c++)
-    if(map[BASE_Y-1][c]===EMPTY) map[BASE_Y-1][c]=BRICK;
-  for(var r=BASE_Y;r<ROWS;r++){
-    if(map[r][BASE_X-1]===EMPTY) map[r][BASE_X-1]=BRICK;
-    if(map[r][BASE_X+2]===EMPTY) map[r][BASE_X+2]=BRICK;
+  if(levelHasBase()){
+    // 放置 2×2 基地
+    for(var r=BASE_Y;r<BASE_Y+2;r++)
+      for(var c=BASE_X;c<BASE_X+2;c++)
+        map[r][c]=BASE;
+    // U 型保护墙：顶部一排 + 左右两侧到底
+    // 只覆盖空地，不破坏已有地形
+    for(var c=BASE_X-1;c<=BASE_X+2;c++)
+      if(map[BASE_Y-1][c]===EMPTY) map[BASE_Y-1][c]=BRICK;
+    for(var r=BASE_Y;r<ROWS;r++){
+      if(map[r][BASE_X-1]===EMPTY) map[r][BASE_X-1]=BRICK;
+      if(map[r][BASE_X+2]===EMPTY) map[r][BASE_X+2]=BRICK;
+    }
   }
   enemies=[]; bullets=[]; particles=[]; killFlashes=[];
   player={x:0, y:0, w:32,h:32, dir:0, alive:true};
   respawnPlayer();
-  enemiesSpawned=0; spawnCD=0; lastPShot=0; pendingPShotUntil=0; shotHeld=false; touchFireHeld=false; invincible=0; invSkillTicks=0; baseAlive=true; baseHp=BASE_HP_MAX;
+  enemiesSpawned=0; spawnCD=0; lastPShot=0; pendingPShotUntil=0; shotHeld=false; touchFireHeld=false; invincible=0; invSkillTicks=0; baseAlive=levelHasBase(); baseHp=levelHasBase()?BASE_HP_MAX:0;
   sweepMode=false; sweepTick=0;
   slowFx=0; hitFx=0;
   skillSlowUntil=0;
@@ -1312,7 +1349,8 @@ function initGame(resetStats){
   updateFishButton();
   updateSweepButton();
   if(resetStats) resetRunStats();
-  enemiesLeft=TOTAL_ENEMIES;
+  else if(isEndlessLevel()) lives=ENDLESS_LIVES;
+  enemiesLeft=isEndlessLevel()?0:TOTAL_ENEMIES;
   updateHUD();
 }
 
